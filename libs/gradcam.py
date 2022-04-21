@@ -45,7 +45,8 @@ def create_grad_cam_heatmap(model, inputs, pred_index, last_conv_layer, timestep
     return image_heatmap
 
 
-def create_grad_lstm_cam_heatmap(model, inputs, pred_index, last_conv_layer, last_lstm_layer, timestep, mixed_weighting):
+def create_grad_lstm_cam_heatmap(model, inputs, pred_index, last_conv_layer, last_lstm_layer, timestep,
+                                 mixed_weighting, scale_across_time):
 
     grad_model = tf.keras.models.Model(
         [model.inputs], [model.get_layer(last_conv_layer).output, model.output]
@@ -83,14 +84,17 @@ def create_grad_lstm_cam_heatmap(model, inputs, pred_index, last_conv_layer, las
         else:
             heatmap = feature_maps[i, ...] @ lstm_grads[i, ..., tf.newaxis]
         heatmap = tf.reshape(heatmap, (1, heatmap.shape[0], heatmap.shape[1]))
-        if tf.math.reduce_max(heatmap) == 0:
-            heatmap = tf.maximum(heatmap, 0)
-        else:
-            heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
+
+        if not scale_across_time:
+            if tf.math.reduce_max(heatmap) == 0:
+                heatmap = tf.maximum(heatmap, 0)
+            else:
+                heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
 
         heatmap_res = tf.concat([heatmap_res, heatmap], axis=0)
-    
-    # heatmap_res = tf.maximum(heatmap_res, 0) / tf.math.reduce_max(heatmap_res)
+
+    if scale_across_time:
+        heatmap_res = tf.maximum(heatmap_res, 0) / tf.math.reduce_max(heatmap_res)
 
     np_heatmap = heatmap_res.numpy()
 
