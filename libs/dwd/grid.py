@@ -94,7 +94,7 @@ def ambeti_as_xarray(path: str, date: str):
     return xds
 
 
-def load_and_store_regnie_files(start_year: int, end_year: int, base_path: str, out_path: str, single_storage: bool = True):
+def load_and_store_regnie_files(start_year: int, end_year: int, base_path: str, out_path: str, single_year_storage: bool = True):
     """
     Loads multiple REGNIE files for the specified years from a base directory as xarray.Dataset and stores it as NetCDF
     files.
@@ -109,7 +109,7 @@ def load_and_store_regnie_files(start_year: int, end_year: int, base_path: str, 
         Path to the base directory which contains the REGNIE files
     out_path: str
         Storage path for the resulting NetCDF files
-    single_storage: bool
+    single_year_storage: bool
         Indicates whether to store NetCDF files for each year or one single NetCDF files, that comprises
         REGNIE data for all years.
 
@@ -130,15 +130,63 @@ def load_and_store_regnie_files(start_year: int, end_year: int, base_path: str, 
                 xds_list.append(regnie_as_xarray(fp, date))
             except ValueError as e:
                 print(f"Error reading file {fp}: {e}")
-        if single_storage:
+        if single_year_storage:
             xds = xr.concat(xds_list, dim="time")
             out_file_path = os.path.join(out_path, f"regnie_{year}.nc")
             xds.to_netcdf(out_file_path)
             print(f"Stored file {out_file_path}.")
             xds_list.clear()
-    if not single_storage:
+    if not single_year_storage:
         xds = xr.concat(xds_list, dim="time")
         out_file_path = os.path.join(out_path, f"regnie_full.nc")
+        xds.to_netcdf(out_file_path)
+        print(f"Stored file {out_file_path}.")
+
+def load_and_store_ambeti_files(start_year: int, end_year: int, base_path: str, out_path: str, single_year_storage: bool = True):
+    """
+    Loads multiple ASCII-files containing AMBETI soil temperature values for the specified years from a base directory
+    as xarray.Dataset and stores it as NetCDF files.
+
+    Parameters
+    ----------
+    start_year: int
+        Start year
+    end_year: int
+        End year
+    base_path: str
+        Path to the base directory which contains the ASCII files
+    out_path: str
+        Storage path for the resulting NetCDF files
+    single_year_storage: bool
+        Indicates whether to store NetCDF files for each year or one single NetCDF files, that comprises
+        REGNIE data for all years.
+
+    """
+    years = list(range(start_year, end_year + 1))
+    dir_paths = [f"{base_path}/{year}" for year in years]
+    xds_list = []
+    for year, dir_path in zip(years, dir_paths):
+        file_paths = glob.glob(f"{dir_path}/grids_germany_daily_soil_temperature_5cm_**.asc", recursive=True)
+        nr_files = len(file_paths)
+        if len(file_paths) == 0:
+            raise FileNotFoundError(f"Can't find files within directory {dir_path}.")
+        dates = [f"{fp[41:45]}-{fp[45:47]}-{fp[47:49]}" for fp in [os.path.basename(fp) for fp in file_paths]]
+        print(f"Read ASCII files for year {year}.")
+        for i, (fp, date) in enumerate(zip(file_paths, dates)):
+            print(f"Reading file {i + 1} of {nr_files} from directory {dir_path}", end="\r")
+            try:
+                xds_list.append(ambeti_as_xarray(fp, date))
+            except ValueError as e:
+                print(f"Error reading file {fp}: {e}")
+        if single_year_storage:
+            xds = xr.concat(xds_list, dim="time")
+            out_file_path = os.path.join(out_path, f"grids_germany_daily_soil_temperature_5cm_{year}.nc")
+            xds.to_netcdf(out_file_path)
+            print(f"Stored file {out_file_path}.")
+            xds_list.clear()
+    if not single_year_storage:
+        xds = xr.concat(xds_list, dim="time")
+        out_file_path = os.path.join(out_path, f"grids_germany_daily_soil_temperature_5cm_full.nc")
         xds.to_netcdf(out_file_path)
         print(f"Stored file {out_file_path}.")
 
@@ -169,6 +217,8 @@ def merge_and_clip_regnie(netcdf_path: str, geom_path: str, out_path: str, start
 
     xds = xr.open_mfdataset(file_paths, parallel=False)
     xds.rio.write_crs(4326, inplace=True)
+    xds.rio.set_spatial_dims(x_dim="x", y_dim="y", inplace=True)
+    xds.rio.write_coordinate_system(inplace=True)
 
     basin = gpd.read_file(geom_path)
 
@@ -181,3 +231,58 @@ def merge_and_clip_regnie(netcdf_path: str, geom_path: str, out_path: str, start
     xds_clipped["precipitation"].attrs.pop("grid_mapping", None)
 
     xds_clipped.to_netcdf(out_path)
+
+start_year = 1991
+end_year = 1992
+base_path = "C:/Users/Sebastian/Documents/Promotion/01_Data/DWD/AMBETI"
+out_path = "./output"
+
+load_and_store_ambeti_files(start_year, end_year, base_path, out_path)
+
+date = "2020-01-01"
+
+ambeti_path = "C:/Users/Sebastian/Documents/Promotion/01_Data/DWD/AMBETI/2020/grids_germany_daily_soil_temperature_5cm_20200101.asc"
+xds_ambeti = ambeti_as_xarray(ambeti_path, date)
+xds_ambeti.to_netcdf("C:/Users/Sebastian/Documents/Promotion/01_Data/DWD/ambeti.nc")
+
+
+regnie_path = "C:/Users/Sebastian/Documents/Promotion/01_Data/DWD/REGNIE/ra2020m/ra200101.gz"
+xds_regnie = regnie_as_xarray(regnie_path, date)
+xds_regnie.to_netcdf("C:/Users/Sebastian/Documents/Promotion/01_Data/DWD/regnie.nc")
+
+geom_path = "./data/wv_catchment.geojson"
+out_path = "D:/Dokumente/Promotion/01_Data/DWD/REGNIE/netcdf/wv_regnie_test.nc"
+
+basin = gpd.read_file(geom_path)
+
+xmin = basin.geometry.total_bounds[0]
+ymin = basin.geometry.total_bounds[1]
+xmax = basin.geometry.total_bounds[2]
+ymax = basin.geometry.total_bounds[3]
+
+xds_regnie_clipped = xds_regnie.rio.clip_box(xmin, ymin, xmax, ymax)
+xds_regnie_clipped["precipitation"].attrs.pop("grid_mapping", None)
+xds_regnie_clipped.to_netcdf("C:/Users/Sebastian/Documents/Promotion/01_Data/DWD/regnie_clipped.nc")
+
+xds_ambeti_reproject = xds_ambeti.rio.reproject("EPSG:4326")
+xds_ambeti_clipped = xds_ambeti_reproject.rio.clip_box(xmin, ymin, xmax, ymax)
+xds_ambeti_clipped["soil_temperature"].attrs.pop("grid_mapping", None)
+xds_ambeti_clipped.to_netcdf("C:/Users/Sebastian/Documents/Promotion/01_Data/DWD/ambeti_clipped.nc")
+
+
+from rasterio.enums import Resampling
+xds_ambeti_match = xds_ambeti.rio.reproject_match(xds_regnie_clipped, resampling=Resampling.average)
+
+xds_ambeti_match = xds_ambeti_match.assign_coords({
+    "x": xds_regnie_clipped.x,
+    "y": xds_regnie_clipped.y,
+})
+
+xds_ambeti_match.to_netcdf("C:/Users/Sebastian/Documents/Promotion/01_Data/DWD/ambeti_matched_average.nc")
+
+
+len(xds_regnie_clipped.y.values)
+len(xds_ambeti_clipped.y.values)
+
+xds_ambeti
+xds_regnie
