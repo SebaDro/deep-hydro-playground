@@ -17,10 +17,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-HYRAS_AIR_TEMPERATURE_MAX = "air_temperature_max"
-HYRAS_AIR_TEMPERATURE_MIN = "air_temperature_min"
-HYRAS_HUMIDITY = "humidity"
-HYRAS_PRECIPITATION = "humidity"
-HYRAS_RADIATION = "radiation_global"
