@@ -6,19 +6,28 @@ import geopandas as gpd
 import glob
 import os
 
-X_DELTA = 1 / 60
-Y_DELTA = 1 / 120
-X_OFFSET = (6 - 10 * X_DELTA) - X_DELTA / 2
-Y_OFFSET = (55 + 10 * Y_DELTA) + Y_DELTA / 2
-LONGITUDES = [x + (i * X_DELTA) for i, x in enumerate([X_OFFSET] * 611)]
-LATITUDES = [y - (i * Y_DELTA) for i, y in enumerate([Y_OFFSET] * 971)]
-LATITUDES.reverse()
+REGNIE_X_DELTA = 1 / 60
+REGNIE_Y_DELTA = 1 / 120
+REGNIE_X_OFFSET = (6 - 10 * REGNIE_X_DELTA) - REGNIE_X_DELTA / 2
+REGNIE_Y_OFFSET = (55 + 10 * REGNIE_Y_DELTA) + REGNIE_Y_DELTA / 2
+REGNIE_X_COORDS = [x + (i * REGNIE_X_DELTA) for i, x in enumerate([REGNIE_X_OFFSET] * 611)]
+REGNIE_Y_COORDS = [y - (i * REGNIE_Y_DELTA) for i, y in enumerate([REGNIE_Y_OFFSET] * 971)]
+REGNIE_Y_COORDS.reverse()
+
+AMBETI_X_DELTA = 1000
+AMBETI_Y_DELTA = 1000
+AMBETI_X_OFFSET = 3280414.
+AMBETI_Y_OFFSET = 5237501.
+AMBETI_X_COORDS = [x + (i * AMBETI_X_DELTA) for i, x in enumerate([AMBETI_X_OFFSET] * 654)]
+AMBETI_Y_COORDS = [y + (i * AMBETI_Y_DELTA) for i, y in enumerate([AMBETI_Y_OFFSET] * 866)]
+
 
 def regnie_as_xarray(path: str, date: str):
     """
-    Creates a xarray.Dataset from a REGNIE file. The xarray.Dataset has longitude and latitude dimensions as well as
-    a time dimension. It also gets a coordinate reference system by using the rio accessor provided by rioxarray.
-    Since precipitation has the unit 1/10 mm in the raw REGNIE dataset it will be converted to mm.
+    Creates a xarray.Dataset from an gzipped ASCII-file containing DWD REGNIE precipitation data. The ASCII-file has a
+    fixed width (971 rows and 611 4-digit values per row). The resulting xarray.Dataset has longitude and latitude
+    dimensions as well as a time dimension. It also gets a coordinate reference system (EPSG:4326) by using the rio
+    accessor provided by rioxarray. Precipitation values have the unit 1/10 mm.
 
     Parameters
     ----------
@@ -36,13 +45,52 @@ def regnie_as_xarray(path: str, date: str):
     pd_regnie = pd.read_fwf(path, header=None, widths=[4] * 611, nrows=971, na_values=-999, compression='gzip')
     np_regnie = pd_regnie.to_numpy()
     np_regnie = np.expand_dims(np_regnie, axis=0)
+    np_regnie = np.flip(np_regnie, axis=1)
 
     xds = xr.Dataset(
-        data_vars=dict(precipitation=(["time", "y", "x"], np.flip(np_regnie, axis=1))),
-        coords=dict(time=[np.datetime64(date)], y=LATITUDES, x=LONGITUDES)
+        data_vars=dict(precipitation=(["time", "y", "x"], np_regnie)),
+        coords=dict(time=[np.datetime64(date)], y=REGNIE_Y_COORDS, x=REGNIE_X_COORDS)
     )
 
     xds.rio.write_crs(4326, inplace=True)
+    xds.rio.set_spatial_dims(x_dim="x", y_dim="y", inplace=True)
+    xds.rio.write_coordinate_system(inplace=True)
+    return xds
+
+
+def ambeti_as_xarray(path: str, date: str):
+    """
+    Creates a xarray.Dataset from an ASCII-file, containing soil temperature values at the depth of 5 cm, calculated
+    from the AMBETI model. The ASCII-file has a fixed width (866 rows and 654 6-digit values  per row). The resulting
+    xarray.Dataset has x- and y-dimensions as well as a time dimension. It also gets a coordinate reference system
+    (EPSG:31467) by using the rio accessor provided by rioxarray. Soil temperature values have the unit 1/10 °C.
+
+    Parameters
+    ----------
+    path: str
+        Path to the ASCII-file.
+    date: str
+        Date for indexing the xarray.Dataset in the format 'yyyy-mm-dd'.
+
+    Returns
+    -------
+    xarray.Dataset:
+        Dataset that holds spatio-temporal soil temperature data [1/10 °C].
+
+    """
+    pd_ambeti = pd.read_fwf(path, header=None, widths=[6] * 654, nrows=866, skiprows=6, na_values=-9999)
+    np_ambeti = pd_ambeti.to_numpy()
+    np_ambeti = np.expand_dims(np_ambeti, axis=0)
+    np_ambeti = np.flip(np_ambeti, axis=1)
+
+    xds = xr.Dataset(
+        data_vars=dict(soil_temperature=(["time", "y", "x"], np_ambeti)),
+        coords=dict(time=[np.datetime64(date)], y=AMBETI_Y_COORDS, x=AMBETI_X_COORDS)
+    )
+
+    xds.rio.write_crs(31467, inplace=True)
+    xds.rio.set_spatial_dims(x_dim="x", y_dim="y", inplace=True)
+    xds.rio.write_coordinate_system(inplace=True)
     return xds
 
 
