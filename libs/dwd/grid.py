@@ -5,6 +5,7 @@ import rioxarray as rio
 import geopandas as gpd
 import glob
 import os
+from rasterio.enums import Resampling
 
 REGNIE_X_DELTA = 1 / 60
 REGNIE_Y_DELTA = 1 / 120
@@ -142,6 +143,7 @@ def load_and_store_regnie_files(start_year: int, end_year: int, base_path: str, 
         xds.to_netcdf(out_file_path)
         print(f"Stored file {out_file_path}.")
 
+
 def load_and_store_ambeti_files(start_year: int, end_year: int, base_path: str, out_path: str, single_year_storage: bool = True):
     """
     Loads multiple ASCII-files containing AMBETI soil temperature values for the specified years from a base directory
@@ -232,57 +234,107 @@ def merge_and_clip_regnie(netcdf_path: str, geom_path: str, out_path: str, start
 
     xds_clipped.to_netcdf(out_path)
 
-start_year = 1991
-end_year = 1992
-base_path = "C:/Users/Sebastian/Documents/Promotion/01_Data/DWD/AMBETI"
-out_path = "./output"
 
-load_and_store_ambeti_files(start_year, end_year, base_path, out_path)
+def merge_and_clip_hyras(netcdf_path: str, geom_path: str, out_path: str, start_year: int, end_year: int,
+                         variable: str, version: str, resolution: int):
+    """
+    Merges multiple HYRAS NetCDF files into a single one and clips it by using the bounding box of a dedicated geometry.
+    All files that contain HYRAS data between the specified start and end date will be considered.
 
-date = "2020-01-01"
+    Parameters
+    ----------
+    netcdf_path: str
+        Path to the directory that contains HYRAS NetCDF files, which will be merged.
+    geom_path: str
+        Path to a file that contains a geometry, which will be used for clipping the merged HYRAS files.
+    out_path: str
+        Path for storing the resulting NetCDF file.
+    start_year: int
+        Start year for considering HYRAS NetCDF files
+    end_year: int
+        End year (inclusive) for considering HYRAS NetCDF files
+    variable: str
+        Relevant variable (e.g. 'precipitation')
+    version: str
+        HYRAS file version (e.g.,
+    resolution: int
+        Resolution of the HYRAS file in km
+    """
+    file_paths = [os.path.join(netcdf_path, str(year), f"{variable}_hyras_{resolution}_{year}_{version}_de.nc")
+                  for year in range(start_year, end_year + 1)]
 
-ambeti_path = "C:/Users/Sebastian/Documents/Promotion/01_Data/DWD/AMBETI/2020/grids_germany_daily_soil_temperature_5cm_20200101.asc"
-xds_ambeti = ambeti_as_xarray(ambeti_path, date)
-xds_ambeti.to_netcdf("C:/Users/Sebastian/Documents/Promotion/01_Data/DWD/ambeti.nc")
+    xds = xr.open_mfdataset(file_paths, parallel=False)
+    xds.rio.write_crs(3034, inplace=True)
+    xds.rio.set_spatial_dims(x_dim="x", y_dim="y", inplace=True)
+    xds.rio.write_coordinate_system(inplace=True)
+
+    basin = gpd.read_file(geom_path)
+    basin = basin.to_crs("EPSG:3034")
+
+    xmin = basin.geometry.total_bounds[0]
+    ymin = basin.geometry.total_bounds[1]
+    xmax = basin.geometry.total_bounds[2]
+    ymax = basin.geometry.total_bounds[3]
+
+    xds_clipped = xds.rio.clip_box(xmin, ymin, xmax, ymax)
+    xds_clipped[variable].attrs.pop("grid_mapping", None)
+
+    xds_clipped.to_netcdf(out_path)
 
 
-regnie_path = "C:/Users/Sebastian/Documents/Promotion/01_Data/DWD/REGNIE/ra2020m/ra200101.gz"
-xds_regnie = regnie_as_xarray(regnie_path, date)
-xds_regnie.to_netcdf("C:/Users/Sebastian/Documents/Promotion/01_Data/DWD/regnie.nc")
+def merge_and_clip(file_paths: list, geom_path: str, out_path: str, variable: str, epsg: int):
+    """
+    Merges multiple NetCDF files into a single one and clips it by using the bounding box of a dedicated geometry.
+    All files that contain variable values between the specified start and end date will be considered.
 
-geom_path = "./data/wv_catchment.geojson"
-out_path = "D:/Dokumente/Promotion/01_Data/DWD/REGNIE/netcdf/wv_regnie_test.nc"
+    Parameters
+    ----------
+    file_paths: list
+        List of NetCDF file paths.
+    geom_path: str
+        Path to a file that contains a geometry, which will be used for clipping the merged HYRAS files.
+    out_path: str
+        Path for storing the resulting NetCDF file.
+    variable: str
+        Relevant variable (e.g. 'precipitation')
+    epsg: int
+        EPSG code of the NetCDF dataset, which wil be used for reprojecting the geom dataset.
 
-basin = gpd.read_file(geom_path)
+    """
 
-xmin = basin.geometry.total_bounds[0]
-ymin = basin.geometry.total_bounds[1]
-xmax = basin.geometry.total_bounds[2]
-ymax = basin.geometry.total_bounds[3]
+    print(f"Read dataset with {len(file_paths)} files.")
+    xds = xr.open_mfdataset(file_paths, parallel=False)
+    xds.rio.write_crs(epsg, inplace=True)
+    xds.rio.set_spatial_dims(x_dim="x", y_dim="y", inplace=True)
+    xds.rio.write_coordinate_system(inplace=True)
 
-xds_regnie_clipped = xds_regnie.rio.clip_box(xmin, ymin, xmax, ymax)
-xds_regnie_clipped["precipitation"].attrs.pop("grid_mapping", None)
-xds_regnie_clipped.to_netcdf("C:/Users/Sebastian/Documents/Promotion/01_Data/DWD/regnie_clipped.nc")
+    print("Clip dataset.")
+    geom = gpd.read_file(geom_path)
+    geom = geom.to_crs(f"EPSG:{epsg}")
 
-xds_ambeti_reproject = xds_ambeti.rio.reproject("EPSG:4326")
-xds_ambeti_clipped = xds_ambeti_reproject.rio.clip_box(xmin, ymin, xmax, ymax)
-xds_ambeti_clipped["soil_temperature"].attrs.pop("grid_mapping", None)
-xds_ambeti_clipped.to_netcdf("C:/Users/Sebastian/Documents/Promotion/01_Data/DWD/ambeti_clipped.nc")
+    xmin = geom.geometry.total_bounds[0]
+    ymin = geom.geometry.total_bounds[1]
+    xmax = geom.geometry.total_bounds[2]
+    ymax = geom.geometry.total_bounds[3]
 
+    xds_clipped = xds.rio.clip_box(xmin, ymin, xmax, ymax)
+    xds_clipped[variable].attrs.pop("grid_mapping", None)
 
-from rasterio.enums import Resampling
-xds_ambeti_match = xds_ambeti.rio.reproject_match(xds_regnie_clipped, resampling=Resampling.average)
-
-xds_ambeti_match = xds_ambeti_match.assign_coords({
-    "x": xds_regnie_clipped.x,
-    "y": xds_regnie_clipped.y,
-})
-
-xds_ambeti_match.to_netcdf("C:/Users/Sebastian/Documents/Promotion/01_Data/DWD/ambeti_matched_average.nc")
+    print("Start writing clipped dataset...")
+    xds_clipped.to_netcdf(out_path)
+    print("Finished writing clipped dataset.")
 
 
-len(xds_regnie_clipped.y.values)
-len(xds_ambeti_clipped.y.values)
+def resample(xds: xr.Dataset, upscale_factor: int, drop_vars: list):
+    new_width = xds.rio.width * upscale_factor
+    new_height = xds.rio.height * upscale_factor
 
-xds_ambeti
-xds_regnie
+    for var in drop_vars:
+        xds = xds.drop_vars(var)
+
+    xds = xds.rio.reproject(
+        xds.rio.crs,
+        shape=(new_height, new_width),
+        resampling=Resampling.nearest,
+    )
+    return xds
