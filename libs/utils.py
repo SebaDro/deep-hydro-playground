@@ -1,4 +1,15 @@
 import matplotlib.pyplot as plt
+import pandas as pd
+
+
+def load_wv_streamflow(path: str):
+    pd_streamflow = pd.read_csv(path, sep=",", skiprows=2, header=0, decimal=".")
+    pd_streamflow["date"] = pd.to_datetime(pd_streamflow["date"])
+    pd_streamflow = pd_streamflow.rename(columns={"date": "time"})
+    pd_streamflow = pd_streamflow.melt(id_vars=["time"], var_name="basin", value_name="streamflow")
+    pd_streamflow = pd_streamflow.set_index(["time", "basin"])
+    ds_streamflow = pd_streamflow.to_xarray()
+    return ds_streamflow
 
 
 def plot_grad_cam(timesteps, inputs, heatmap_timeseries_list, basins):
