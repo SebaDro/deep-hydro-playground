@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 import pandas as pd
+import numpy as np
+import textwrap
 
 
 def load_wv_streamflow(path: str):
@@ -28,6 +30,36 @@ def plot_grad_cam(timesteps, inputs, heatmap_timeseries_list, basins):
     row_labels = [f"t={t}" for t in range(0, 11)]
     for ax, row in zip(axis[:, 0], row_labels):
         ax.set_ylabel(row)
+
+
+def plot_forcings(xds, variables: list, timesteps: int, cmaps: list, gpd_catchment = None, gpd_subbasins = None):
+    fig, axis = plt.subplots(len(variables), timesteps, figsize=(10, 10), sharex="all", sharey="all")
+    for i, var in enumerate(variables):
+        min = np.nanmin(xds[var].values)
+        max = np.nanmax(xds[var].values)
+        levels = np.arange(min, max, 1)
+        var_name = xds[var].attrs["long_name"]
+        var_unit = xds[var].attrs["units"]
+        for t in range(0, timesteps):
+            if t == timesteps - 1:
+                xds[var].isel(time=t).plot.contourf(ax=axis[i, t], add_labels=False, cmap=cmaps[i], levels=levels,
+                                                    cbar_kwargs={"label": textwrap.fill(f"{var_name} [{var_unit}]", 20)})
+            else:
+                xds[var].isel(time=t).plot.contourf(ax=axis[i, t], add_labels=False, cmap=cmaps[i], levels=levels,
+                                                        add_colorbar=False)
+            if gpd_catchment is not None:
+                gpd_catchment.plot(ax=axis[i, t], color='none', edgecolor='black')
+            if gpd_subbasins is not None:
+                gpd_subbasins.plot(ax=axis[i, t], color="none", linewidth=0.5, edgecolor='black')
+    for i, ax in enumerate(axis[0]):
+        time = xds.time.values[i]
+        time_str = np.datetime_as_string(time, unit="D")
+        ax.set_title(f"time={time_str}")
+    plt.suptitle("DWD HYRAS timeseries for Wupper catchment area", fontsize=14)
+    fig.supxlabel('longitude')
+    fig.supylabel('latitude')
+    plt.tight_layout()
+    plt.show()
 
 
 def plot_grad_cam2(timesteps, inputs, heatmap_timeseries_list, basins):
