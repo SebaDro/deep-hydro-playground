@@ -25,10 +25,25 @@ class CustomTimeseriesGenerator(Sequence):
         offset: int
             Offset between inputs (forcings) and target (streamflow). An offset of 1 means that forcings for the last
             n-days will be taken as input and the the streamflow for n + 1 will be taken as target.
-        feature_vars
-        target_var
-        drop_na
-        input_shape
+        feature_vars: list
+            List of variables that should be used as input features
+        target_vars: list
+            List of variables that should be used as targets
+        drop_na: bool
+            Indicates whether NaN values for the target vars should be preserved for generating time win or not.
+            Default: True
+        joined_ouput: bool
+            Indicates whether the timeseries batches should be prepared in a joined wa, meaning inputs are valid for all
+            basins. If True, a single sample contains only one input features timeseries for multiples basins. If
+            False, you may have separate input features timeseries for each basin. Default: False
+        basin_indexed: bool
+            Indicates, whether the input and target variables are basin indexed within the xarray.Dataset. If True and
+            also 'joined_output' is True, only targets will be handled as basin_indexed. Default: False
+        input_shape: tuple
+            Shape of the inputs to be used for generating time windows. If not specified, the input shape will be
+            computed automatically from the given xarray.Dataset.
+        shuffle: bool
+            Indicates whether to shuffle the samples or not.
         """
         self.xds = xds.transpose("basin", "time", "y", "x")
         self.batch_size = batch_size
