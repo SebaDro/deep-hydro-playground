@@ -8,8 +8,8 @@ import xarray
 class CustomTimeseriesGenerator(Sequence):
 
     def __init__(self, xds: xarray.Dataset, batch_size: int, timesteps: int, offset: int, feature_vars: list,
-                 target_var: str, drop_na: bool = False, joined_output: bool = False, basin_indexed: bool = True,
-                 input_shape: tuple = None):
+                 target_var: str, drop_na: bool = False, joined_ouput: bool = False, basin_indexed: bool = True,
+                 input_shape: tuple = None, shuffle: bool = False):
         """
         A custom TimeseriesGenerator that creates batches of timeseries from a xarray.Dataset and optionally takes
         also into account NaN values.
@@ -45,19 +45,24 @@ class CustomTimeseriesGenerator(Sequence):
         shuffle: bool
             Indicates whether to shuffle the samples or not.
         """
-        self.xds = xds.transpose("basin", "time", "y", "x")
+        if all(i in xds.coords for i in ["basin", "time", "y", "x"]):
+            self.xds = xds.transpose("basin", "time", "y", "x")
+        elif all(i in xds.coords for i in ["basin", "time"]):
+            self.xds = xds.transpose("basin", "time")
         self.batch_size = batch_size
         self.timesteps = timesteps
         self.offset = offset
         self.feature_vars = feature_vars
         self.target_var = target_var
         self.drop_na = drop_na
-        self.joined_output = joined_output
+        self.joined_output = joined_ouput
         self.basin_indexed = basin_indexed
         self.input_shape = input_shape
-        self.idx_dict = self.__get_basin_idx_df(drop_na, joined_output)
+        self.idx_dict = self.__get_basin_idx_df(drop_na, joined_ouput)
+        if shuffle:
+            self.idx_dict = self.idx_dict.sample(frac=1).reset_index(drop=True)
         self.ds_inputs = self.xds[feature_vars].to_array()
-        if joined_output:
+        if joined_ouput:
             self.ds_targets = self.xds[[target_var]].to_array()
         else:
             self.ds_targets = self.xds[[target_var]].to_array()
